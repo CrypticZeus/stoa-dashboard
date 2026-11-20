@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Stoa swaps on Robinhood Chain</title>
+<style>
+:root{--bg:#fff;--fg:#14181f;--mut:#667085;--card:#f3f5f8;--ac:#2563eb}
+@media(prefers-color-scheme:dark){:root{--bg:#0f1218;--fg:#e8ebf0;--mut:#8b94a3;--card:#1a1f29;--ac:#6ea0ff}}
+body{margin:0;padding:16px;background:var(--bg);color:var(--fg);font:15px system-ui,sans-serif;max-width:900px;margin-inline:auto}
+h1{font-size:20px}h2{font-size:15px;margin-top:24px}
+.g{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+.c{background:var(--card);border-radius:10px;padding:12px}.c b{display:block;font-size:22px}.c span{color:var(--mut);font-size:12px}
+.w{overflow-x:auto}table{border-collapse:collapse;width:100%;font-size:13px}
+td,th{text-align:left;padding:6px 8px;border-bottom:1px solid var(--card);white-space:nowrap}
+a{color:var(--ac)}svg{width:100%;height:auto}.bar{fill:var(--ac)}svg text{fill:var(--mut);font-size:10px}small,#s{color:var(--mut)}
+</style></head><body>
+<h1>Stoa swaps on Robinhood Chain</h1>
+<small><a href="https://stoadex.com/trade">Trade on Stoa</a> · Live from on-chain <code>Routed</code> events of the StoaRouter, via Blockscout. Open source: see repo README.</small>
+<p id="s">Loading…</p>
+<div class="g" id="k"></div>
+<h2>Swaps per day (UTC)</h2><div id="ch"></div>
+<h2>Routes per venue</h2><div class="w"><table id="v"></table></div>
+<h2>Top traders</h2><div class="w"><table id="t"></table></div>
+<h2>Latest swaps</h2><div class="w"><table id="l"></table></div>
+<script>
+const API='https://robinhoodchain.blockscout.com',EXP=API,
+ROUTER='0x2F2804fad735a38015650f32f95Ad5E08D6B3eE5',
+TOPIC='0x2bbce25631e8fa58085b7ea5929726c3acdf2df8d6b1f099eb32fb7425a4f6da',
+USDG='0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168',
+MAXPAGES=60,Z='0x'+'0'.repeat(40);
+const $=id=>document.getElementById(id),sh=a=>a.slice(0,6)+'…'+a.slice(-4);
+const addr=w=>'0x'+w.slice(24).toLowerCase();
+function dec(l){const d=l.data.slice(2),w=i=>d.slice(i*64,i*64+64),t=l.topics;
+ return{tx:l.transaction_hash,blk:l.block_number,sender:addr(t[1].slice(2)),to:addr(t[2].slice(2)),ref:addr(t[3].slice(2)),
+ tin:addr(w(0)),tout:addr(w(1)),ain:BigInt('0x'+w(2)),aout:BigInt('0x'+w(3)),v1:addr(w(5)),v2:addr(w(6))}}
+async function logs(){let out=[],p='',n=0;
+ while(n++<MAXPAGES){const r=await fetch(`${API}/api/v2/addresses/${ROUTER}/logs${p}`);if(!r.ok)throw new Error('Blockscout '+r.status);
+  const j=await r.json();for(const l of j.items||[])if((l.topics||[])[0]===TOPIC)out.push(dec(l));
+  if(!j.next_page_params)break;p='?'+new URLSearchParams(j.next_page_params)}
+ return{out,capped:n>MAXPAGES}}
+async function usdgDecimals(){try{return +(await (await fetch(`${API}/api/v2/tokens/${USDG}`)).json()).decimals}catch{return 6}}
+async function stamps(s){const need=new Set(s.map(x=>x.tx)),ts={};let p='',n=0;
+ while(need.size&&n++<MAXPAGES){const r=await fetch(`${API}/api/v2/addresses/${ROUTER}/transactions${p}`);if(!r.ok)break;
+  const j=await r.json();for(const t of j.items||[])if(need.has(t.hash)){ts[t.hash]=t.timestamp;need.delete(t.hash)}
+  if(!j.next_page_params)break;p='?'+new URLSearchParams(j.next_page_params)}
+ return ts}
+function chart(s,ts){const d={};s.forEach(x=>{const t=ts[x.tx];if(t){const k=t.slice(0,10);d[k]=(d[k]||0)+1}});
+ const k=Object.keys(d).sort();if(!k.length)return'<small>No timestamps available.</small>';
+ const m=Math.max(...k.map(x=>d[x])),W=700,H=160,bw=Math.min(40,W/k.length-4);
+ return`<svg viewBox="0 0 ${W} ${H+20}">`+k.map((x,i)=>{const h=d[x]/m*H,xx=i*(W/k.length)+2;
+  return`<rect class="bar" x="${xx}" y="${H-h}" width="${bw}" height="${h}"><title>${x}: ${d[x]} swaps</title></rect><text x="${xx}" y="${H+12}">${x.slice(5)}</text><text x="${xx}" y="${H-h-3}">${d[x]}</text>`}).join('')+'</svg>'}
+const tally=(a,k)=>{const m={};a.forEach(x=>m[x[k]]=(m[x[k]]||0)+1);return Object.entries(m).sort((x,y)=>y[1]-x[1])};
+const row=(...c)=>'<tr>'+c.map(x=>`<td>${x}</td>`).join('')+'</tr>';
+const A=a=>`<a href="${EXP}/address/${a}">${sh(a)}</a>`;
+(async()=>{try{
+ const [{out:s,capped},dc]=await Promise.all([logs(),usdgDecimals()]);
+ const ts=await stamps(s);
+ const lc=USDG.toLowerCase();let vol=0;
+ let px=0;for(const x of s){if(x.tin===Z&&x.tout===lc&&x.ain>0n){px=Number(x.aout)/10**dc/(Number(x.ain)/1e18);break}
+  if(x.tout===Z&&x.tin===lc&&x.aout>0n){px=Number(x.ain)/10**dc/(Number(x.aout)/1e18);break}}
+ s.forEach(x=>{if(x.tin===lc)vol+=Number(x.ain)/10**dc;else if(x.tout===lc)vol+=Number(x.aout)/10**dc;
+  else if(px&&x.tin===Z)vol+=Number(x.ain)/1e18*px;else if(px&&x.tout===Z)vol+=Number(x.aout)/1e18*px});
+ const venues=[];s.forEach(x=>{venues.push({v:x.v1});if(x.v2!==Z)venues.push({v:x.v2})});
+ $('s').textContent=`Updated ${new Date().toUTCString()}`+(capped?` · showing the newest ${MAXPAGES} pages only`:'');
+ $('k').innerHTML=[[s.length,'swaps'],[new Set(s.map(x=>x.sender)).size,'unique traders'],
+  ['$'+vol.toLocaleString(undefined,{maximumFractionDigits:0}),'volume, approx. (USDG-quoted plus ETH swaps at the latest on-chain ETH/USDG rate; other pairs not counted)'],
+  [new Set(venues.map(x=>x.v)).size,'venues used']].map(([a,b])=>`<div class="c"><b>${a}</b><span>${b}</span></div>`).join('');
+ $('ch').innerHTML=chart(s,ts);
+ $('v').innerHTML='<tr><th>Venue</th><th>Legs routed</th></tr>'+tally(venues,'v').map(([a,n])=>row(A(a),n)).join('');
+ $('t').innerHTML='<tr><th>Trader</th><th>Swaps</th></tr>'+tally(s,'sender').slice(0,10).map(([a,n])=>row(A(a),n)).join('');
+ $('l').innerHTML='<tr><th>Time (UTC)</th><th>Tx</th><th>Trader</th><th>Venue 1</th><th>Venue 2</th><th>Referrer</th></tr>'+
+  s.slice(0,25).map(x=>row((ts[x.tx]||'').slice(0,16).replace('T',' '),`<a href="${EXP}/tx/${x.tx}">${sh(x.tx)}</a>`,A(x.sender),A(x.v1),x.v2===Z?'direct':A(x.v2),x.ref===Z?'-':A(x.ref))).join('');
+}catch(e){$('s').textContent='Could not load data: '+e.message}})();
+</script></body></html>
